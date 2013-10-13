@@ -16,6 +16,7 @@ import Support.Transform
 import Util.Gen
 import Util.SetLike
 import qualified FlagOpts as FO
+import Debug.Trace
 
 {-# NOINLINE devolveTransform #-}
 devolveTransform = transformParms {
@@ -97,6 +98,8 @@ twiddleExp e = f e where
     f (x :>>= lam) | fopts FO.Jgc && isAllocing x = do
         roots <- asks envRoots
         let nroots = Set.fromList [ Var v t | (v,t) <- Set.toList (freeVars (if isUsing x then ([] :-> x :>>= lam) else lam)), isNode t, v > v0] Set.\\ roots
+--        let fv = Set.fromList [ Var v t | (v,t) <- Set.toList (freeVars (if isUsing x then ([] :-> x :>>= lam) else lam))]
+--        let nroots = trace ("\nexp: " ++ show x) $ trace ("fv: " ++ show fv) $ trace ("envRoots: " ++ show roots) $ trace ("gc root: " ++ show nroots') nroots'
         local (\e -> e { envRoots = envRoots e `Set.union` nroots}) $ do
             ne <- return (:>>=) `ap` twiddle x `ap` twiddle lam
             return $ gcRoots (Set.toList nroots) ne
@@ -116,11 +119,12 @@ twiddleExp e = f e where
 
     isUsing (BaseOp StoreNode {} _) = True
     isUsing Alloc {} = True
+    isUsing (Return [Var {}]) = True
     isUsing _ = False
 
     isAllocing (BaseOp StoreNode {} _) = True
     isAllocing (BaseOp Eval {} _) = True
-    isAllocing (Return [Var {}]) = False
+    isAllocing (Return [Var {}]) = True
     isAllocing (Return [NodeC {}]) = True
     isAllocing App {} = True
     isAllocing Call {} = True
@@ -160,6 +164,7 @@ twiddleGrin grin = grinFunctions_s fs' grin where
     fs' = runR . twiddle  $ grinFunctions grin
 
 instance Twiddle FuncDef where
+--    twiddle x = funcDefBody_uM twiddle (trace ("\n**** " ++ show (funcDefName x) ++ " ***\n" ++ show (funcDefBody x)) x)
     twiddle = funcDefBody_uM twiddle
 
 twiddleVal x = f x where
