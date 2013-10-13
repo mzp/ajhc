@@ -16,6 +16,7 @@ import Support.Transform
 import Util.Gen
 import Util.SetLike
 import qualified FlagOpts as FO
+import Debug.Trace
 
 {-# NOINLINE devolveTransform #-}
 devolveTransform = transformParms {
@@ -94,9 +95,17 @@ instance Twiddle a => Twiddle [a] where
 twiddleExp e = f e where
 --    f (BaseOp Promote vs :>>= rest) = f (Return vs :>>= rest)
 --    f (BaseOp Demote vs :>>= rest) = f (Return vs :>>= rest)
+    f (x@(BaseOp StoreNode {} _) :>>= (vs :-> body)) | fopts FO.Jgc = do
+        roots <- asks envRoots
+        let nroots = Set.fromList [ Var v t | (v,t) <- Set.toList (freeVars vs),isNode t, v > v0] Set.\\ roots
+        local (\e -> e { envRoots = envRoots e `Set.union` nroots}) $ do
+            ne <- return (:>>=) `ap` twiddle x `ap` twiddle (vs :-> gcRoots (Set.toList nroots) body)
+            return ne
     f (x :>>= lam) | fopts FO.Jgc && isAllocing x = do
         roots <- asks envRoots
-        let nroots = Set.fromList [ Var v t | (v,t) <- Set.toList (freeVars (if isUsing x then ([] :-> x :>>= lam) else lam)), isNode t, v > v0] Set.\\ roots
+        let nroots' = Set.fromList [ Var v t | (v,t) <- Set.toList (freeVars (if isUsing x then ([] :-> x :>>= lam) else lam)), isNode t, v > v0] Set.\\ roots
+        let fv = Set.fromList [ Var v t | (v,t) <- Set.toList (freeVars (if isUsing x then ([] :-> x :>>= lam) else lam))]
+        let nroots = trace ("\nexp: " ++ show x) $ trace ("fv: " ++ show fv) $ trace ("envRoots: " ++ show roots) $ trace ("gc root: " ++ show nroots') nroots'
         local (\e -> e { envRoots = envRoots e `Set.union` nroots}) $ do
             ne <- return (:>>=) `ap` twiddle x `ap` twiddle lam
             return $ gcRoots (Set.toList nroots) ne
@@ -160,7 +169,8 @@ twiddleGrin grin = grinFunctions_s fs' grin where
     fs' = runR . twiddle  $ grinFunctions grin
 
 instance Twiddle FuncDef where
-    twiddle = funcDefBody_uM twiddle
+    twiddle x = funcDefBody_uM twiddle (trace ("\n**** " ++ show (funcDefName x) ++ " ***\n" ++ show (funcDefBody x)) x)
+--    twiddle = funcDefBody_uM twiddle
 
 twiddleVal x = f x where
     f var@(Var v ty) = do
